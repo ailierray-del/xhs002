@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>母婴爆文工厂 · 小红书内容创作系统</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+    background: linear-gradient(135deg,#FFF5F7 0%,#FFF9F5 50%,#F5FBF8 100%);
+    min-height: 100vh;
+    color: #2D1B1B;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .card { background:white; border-radius:16px; box-shadow:0 2px 20px rgba(255,107,139,0.09); animation:fadeIn 0.3s ease; }
+  .btn-p { background:linear-gradient(135deg,#FF6B8B,#FF8C69); color:white; border:none; border-radius:12px; padding:10px 24px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
+  .btn-p:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 5px 18px rgba(255,107,139,0.38); }
+  .btn-p:disabled { opacity:0.45; cursor:not-allowed; transform:none; }
+  .btn-g { background:transparent; border:1.5px solid #FFD4DF; color:#FF6B8B; border-radius:10px; padding:8px 16px; font-size:13px; cursor:pointer; transition:all 0.2s; font-family:inherit; }
+  .btn-g:hover { background:#FFF0F3; }
+  textarea, input[type=text] { width:100%; border:1.5px solid #FFE8ED; border-radius:10px; padding:11px 14px; font-size:13px; line-height:1.7; font-family:inherit; outline:none; transition:border 0.2s; background:#FFFCFD; }
+  textarea { resize:vertical; }
+  textarea:focus, input[type=text]:focus { border-color:#FF6B8B; background:white; }
+  .post-card { transition:all 0.2s; cursor:pointer; }
+  .post-card:hover { transform:translateY(-2px); box-shadow:0 6px 24px rgba(255,107,139,0.15); }
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:#FFD4DF; border-radius:4px; }
+  .chip { display:inline-block; border-radius:10px; padding:2px 9px; font-size:11px; }
+  .guide-step { border-left:3px solid #FF6B8B; padding-left:16px; margin-bottom:20px; }
+  .kw-tag { display:inline-block; background:#FFF0F3; color:#FF6B8B; border-radius:8px; padding:4px 12px; font-size:12px; margin:3px; cursor:pointer; border:1px solid #FFE8ED; transition:all 0.15s; user-select:none; }
+  .kw-tag:hover { background:#FF6B8B; color:white; }
+  .day-card { border-radius:12px; padding:14px 16px; margin-bottom:8px; border:1.5px solid #FFE8ED; background:white; cursor:pointer; transition:all 0.2s; }
+  .nav-btn { background:transparent; color:#8A7070; border:none; border-radius:10px; padding:7px 13px; font-size:12px; font-weight:400; cursor:pointer; transition:all 0.2s; font-family:inherit; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+  .nav-btn.active { background:linear-gradient(135deg,#FF6B8B,#FF8C69); color:white; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const API_URL = "https://api.anthropic.com/v1/messages";
+
+const STYLES = [
+  { id:"story",    label:"故事型",   desc:"亲身经历·引发共鸣" },
+  { id:"list",     label:"干货清单", desc:"N技巧·收藏转发" },
+  { id:"problem",  label:"痛点解决", desc:"提问引入·给答案" },
+  { id:"contrast", label:"对比种草", desc:"踩坑vs正确做法" },
+];
+const TOPICS = ["辅食","早教","睡眠","穿搭","好物推荐","月子","孕期","宝宝护肤","母乳","玩具"];
+const WEEKLY = [
+  { day:"周一", type:"干货清单", icon:"📋", color:"#667EEA", bg:"#F0F2FF", kws:["辅食添加顺序","早教游戏清单","宝宝睡眠技巧"], tip:"清单类收藏率最高，适合开周引流" },
+  { day:"周二", type:"故事共鸣", icon:"💝", color:"#FF6B8B", bg:"#FFF0F3", kws:["新手妈妈崩溃","带娃日常","育儿感悟"], tip:"真实故事引发评论互动，积累粉丝黏性" },
+  { day:"周三", type:"痛点解决", icon:"💡", color:"#F59E0B", bg:"#FFFBEB", kws:["宝宝不吃辅食怎么办","睡觉哭闹","辅食过敏"], tip:"搜索量大，解决实际问题带来精准粉丝" },
+  { day:"周四", type:"故事共鸣", icon:"💝", color:"#FF6B8B", bg:"#FFF0F3", kws:["婆媳育儿矛盾","职场妈妈","产后恢复心路"], tip:"周四流量高峰，情感类内容更容易爆" },
+  { day:"周五", type:"好物种草", icon:"🛍️", color:"#10B981", bg:"#F0FDF4", kws:["宝宝辅食工具","早教玩具推荐","月子好物"], tip:"周末前种草，转化率最高" },
+  { day:"周六", type:"对比测评", icon:"⚖️", color:"#8B5CF6", bg:"#F5F3FF", kws:["辅食机哪个好","早教班值不值","品牌对比"], tip:"周末用户有时间阅读长文，测评类收藏多" },
+  { day:"周日", type:"总结复盘", icon:"🌟", color:"#EC4899", bg:"#FDF2F8", kws:["本周育儿记录","宝宝成长日记","妈妈周记"], tip:"周末情感类内容温暖治愈，增强账号人设" },
+];
+const STRATEGIES = [
+  { title:"🔥 按热度找", steps:["打开小红书 → 搜索框输入关键词","点「筛选」→ 时间选「最近一个月」","排序选「最多收藏」或「最多点赞」","优先选点赞>1000、收藏>500 的帖子"] },
+  { title:"📈 按话题找", steps:["搜索话题标签，如 #辅食添加","查看话题页面的「精选」内容","精选帖通常是算法认定的高质量内容","重点关注置顶的3-5篇帖子"] },
+  { title:"👑 找同类博主", steps:["搜索「母婴」找到1-5万粉的博主","查看其主页，注意高收藏帖","参考其选题方向规划自己内容","关注3-5个同类博主，每天看更新"] },
+  { title:"💬 挖评论区", steps:["找到一篇热文后仔细看评论区","高赞评论往往揭示用户真实痛点","把评论里的问题整理成下一篇选题","评论关键词直接用作标题"] },
+];
+
+async function callClaude(messages, system) {
+  const r = await fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, system, messages }) });
+  return r.json();
+}
+
+function Spinner({ label="AI 正在处理…" }) {
+  return <div style={{display:"flex",alignItems:"center",gap:10,color:"#FF6B8B"}}>
+    <svg width={18} height={18} viewBox="0 0 24 24" style={{animation:"spin 0.8s linear infinite",flexShrink:0}}>
+      <circle cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={3} fill="none" strokeDasharray="31 63"/>
+    </svg>
+    <span style={{fontSize:13,color:"#C07878"}}>{label}</span>
+  </div>;
+}
+
+function GuidePage({ onGo }) {
+  const [activeDay, setActiveDay] = useState(null);
+  const [copiedKw, setCopiedKw] = useState("");
+  const copyKw = (kw) => { navigator.clipboard?.writeText(kw).catch(()=>{}); setCopiedKw(kw); setTimeout(()=>setCopiedKw(""),1500); };
+
+  return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div className="card" style={{padding:24}}>
+        <div style={{fontSize:16,fontWeight:700,color:"#2D1B1B",marginBottom:4}}>🗺️ 系统使用说明</div>
+        <div style={{fontSize:12,color:"#C07878",marginBottom:20}}>每天 10 分钟，完成内容创作全流程</div>
+        {[
+          {n:1,t:"📥 收集热文（3分钟）",d:"打开小红书 → 按下方关键词搜索 → 找点赞过千的帖子 → 全文复制 → 粘贴到「收集热文」页 → 点 AI 分析"},
+          {n:2,t:"✨ AI仿写（2分钟）",d:"切换到「AI仿写」→ 选刚保存的热文 → 设置话题类型 → 一键生成 → 不满意就重新生成"},
+          {n:3,t:"📱 发布（5分钟）",d:"在「内容库」点「复制」→ 粘贴到小红书 → 配上自己的真实照片 → 修改1-2处让内容更像自己写的 → 发布"},
+        ].map(s=><div key={s.n} className="guide-step">
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
+            <span style={{background:"linear-gradient(135deg,#FF6B8B,#FF8C69)",color:"white",borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>{s.n}</span>
+            <span style={{fontSize:14,fontWeight:700,color:"#2D1B1B"}}>{s.t}</span>
+          </div>
+          <div style={{fontSize:13,color:"#5A3A3A",lineHeight:1.9}}>{s.d}</div>
+        </div>)}
+      </div>
+
+      <div className="card" style={{padding:24}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:14}}>🔍 四种找热文策略</div>
+        {STRATEGIES.map((s,i)=><div key={i} style={{borderRadius:10,border:"1.5px solid #FFE8ED",overflow:"hidden",marginBottom:10}}>
+          <div style={{padding:"10px 14px",background:"#FFF5F7",fontSize:13,fontWeight:600,color:"#2D1B1B"}}>{s.title}</div>
+          <div style={{padding:"12px 14px"}}>
+            {s.steps.map((step,j)=><div key={j} style={{display:"flex",gap:8,marginBottom:j<s.steps.length-1?7:0}}>
+              <span style={{color:"#FF6B8B",fontWeight:700,fontSize:12,flexShrink:0,marginTop:1}}>{j+1}.</span>
+              <span style={{fontSize:12,color:"#5A3A3A",lineHeight:1.7}}>{step}</span>
+            </div>)}
+          </div>
+        </div>)}
+      </div>
+    </div>
+
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div className="card" style={{padding:24}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:4}}>📅 每周内容计划表</div>
+        <div style={{fontSize:11,color:"#C07878",marginBottom:14}}>点击某天展开 · 点关键词可复制</div>
+        {WEEKLY.map(d=><div key={d.day} className="day-card" onClick={()=>setActiveDay(activeDay===d.day?null:d.day)} style={{borderColor:activeDay===d.day?d.color:"#FFE8ED",background:activeDay===d.day?d.bg:"white"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <span style={{fontSize:18}}>{d.icon}</span>
+              <span style={{fontSize:13,fontWeight:700,color:d.color}}>{d.day}</span>
+              <span style={{fontSize:12,color:"#5A3A3A"}}>{d.type}</span>
+            </div>
+            <span style={{fontSize:11,color:"#C07878"}}>{activeDay===d.day?"▲":"▼"}</span>
+          </div>
+          {activeDay===d.day&&<div style={{marginTop:12}}>
+            <div style={{fontSize:11,color:"#8A7070",marginBottom:7}}>今日推荐搜索关键词（点击复制）</div>
+            <div style={{marginBottom:8}}>{d.kws.map(k=><span key={k} className="kw-tag" onClick={e=>{e.stopPropagation();copyKw(k);}} style={copiedKw===k?{background:"#FF6B8B",color:"white"}:{}}>{copiedKw===k?"✓ 已复制":k}</span>)}</div>
+            <div style={{fontSize:12,color:d.color,background:d.bg,borderRadius:8,padding:"8px 12px"}}>💡 {d.tip}</div>
+          </div>}
+        </div>)}
+      </div>
+
+      <div className="card" style={{padding:24}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:14}}>⏱️ 每日时间规划</div>
+        {[
+          {time:"08:00",act:"刷小红书找热文，复制粘贴到系统",dur:"3分钟"},
+          {time:"08:03",act:"点「AI分析结构」，查看爆款评分",dur:"1分钟"},
+          {time:"08:04",act:"切换「AI仿写」，选话题一键生成",dur:"2分钟"},
+          {time:"08:06",act:"存入内容库，修改个人化细节",dur:"3分钟"},
+          {time:"08:09",act:"复制到小红书，配图发布",dur:"2分钟"},
+        ].map((item,i)=><div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"9px 12px",background:"#FAFAFA",borderRadius:9,marginBottom:7}}>
+          <span style={{fontSize:11,color:"#FF6B8B",fontWeight:600,whiteSpace:"nowrap",marginTop:1}}>{item.time}</span>
+          <span style={{fontSize:12,color:"#5A3A3A",flex:1,lineHeight:1.6}}>{item.act}</span>
+          <span style={{fontSize:11,color:"#C07878",whiteSpace:"nowrap",background:"#FFE8ED",borderRadius:6,padding:"1px 7px"}}>{item.dur}</span>
+        </div>)}
+        <div style={{marginTop:14,padding:"12px 16px",background:"linear-gradient(135deg,#FF6B8B08,#FF8C6908)",borderRadius:10,borderLeft:"3px solid #FF8C69"}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#D97706",marginBottom:4}}>每天只需 <span style={{color:"#FF6B8B"}}>10 分钟</span></div>
+          <div style={{fontSize:12,color:"#5A3A3A",lineHeight:1.7}}>坚持30天日更 → 账号权重提升 → 系统推流增加 → 稳步涨粉到10000+</div>
+        </div>
+        <button className="btn-p" style={{width:"100%",marginTop:14,justifyContent:"center"}} onClick={()=>onGo("collect")}>🚀 开始收集今日热文</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function App() {
+  const [tab, setTab] = useState("guide");
+  const [hotPosts, setHotPosts] = useState(()=>{try{return JSON.parse(localStorage.getItem("xhs_hp")||"[]");}catch(e){return[];}});
+  const [library, setLibrary]   = useState(()=>{try{return JSON.parse(localStorage.getItem("xhs_lib")||"[]");}catch(e){return[];}});
+  const [pasteText, setPasteText]     = useState("");
+  const [pasteTitle, setPasteTitle]   = useState("");
+  const [pasteTags, setPasteTags]     = useState([]);
+  const [analyzing, setAnalyzing]     = useState(false);
+  const [analyzeMsg, setAnalyzeMsg]   = useState("");
+  const [analysis, setAnalysis]       = useState(null);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [genStyle, setGenStyle]       = useState("story");
+  const [genTopic, setGenTopic]       = useState("");
+  const [customNote, setCustomNote]   = useState("");
+  const [generating, setGenerating]   = useState(false);
+  const [generated, setGenerated]     = useState(null);
+  const [copiedId, setCopiedId]       = useState(null);
+  const [editingId, setEditingId]     = useState(null);
+  const [editText, setEditText]       = useState("");
+
+  useEffect(()=>{localStorage.setItem("xhs_hp", JSON.stringify(hotPosts));},[hotPosts]);
+  useEffect(()=>{localStorage.setItem("xhs_lib",JSON.stringify(library));},[library]);
+
+  const analyzePost = async () => {
+    if (!pasteText.trim()) return;
+    setAnalyzing(true); setAnalysis(null); setAnalyzeMsg("正在解析爆款结构…");
+    const t1=setTimeout(()=>setAnalyzeMsg("提取情感逻辑…"),1500);
+    const t2=setTimeout(()=>setAnalyzeMsg("评估爆款潜力…"),3000);
+    try {
+      const d = await callClaude([{role:"user",content:`分析这篇小红书爆文:\n\n${pasteText}`}],
+        `你是小红书内容策略专家，专注母婴领域。分析用户帖子，返回纯JSON（不要markdown）:
+{"hook":"开头钩子句≤20字","structure":"文章结构","keywords":["词1","词2","词3"],"emotion":"情感核心","cta":"结尾引导类型","score":爆款潜力1到10}`);
+      clearTimeout(t1);clearTimeout(t2);
+      const txt=d.content?.[0]?.text||"";
+      setAnalysis(JSON.parse(txt.replace(/```json|```/g,"").trim()));
+    } catch(e){setAnalysis({error:"分析失败，请检查后重试"});}
+    setAnalyzing(false);
+  };
+
+  const saveHotPost = () => {
+    if (!pasteText.trim()) return;
+    setHotPosts(p=>[{id:Date.now(),title:pasteTitle||pasteText.slice(0,28)+"…",content:pasteText,tags:pasteTags,analysis,savedAt:new Date().toLocaleDateString("zh-CN")},...p]);
+    setPasteText("");setPasteTitle("");setPasteTags([]);setAnalysis(null);
+    alert("✅ 热文已保存到热文库！");
+  };
+
+  const generateArticle = async () => {
+    if (!selectedPost) return;
+    setGenerating(true); setGenerated(null);
+    try {
+      const sl=STYLES.find(s=>s.id===genStyle)?.label||genStyle;
+      const d=await callClaude([{role:"user",content:`参考爆文仿写全新小红书母婴帖子。\n\n【参考爆文】\n${selectedPost.content}\n\n【爆文分析】\n${selectedPost.analysis?JSON.stringify(selectedPost.analysis):"无"}\n\n【要求】类型:${sl} 话题:${genTopic||"母婴通用"} 备注:${customNote||"无"}\n口语化真实感，300-500字，含emoji标题和正文，结尾加3-5个话题标签\n格式：标题：[标题]\n\n[正文]`}],
+        `你是小红书顶级母婴博主文案助理，擅长创作真实有温度高互动的母婴内容。仿写时：保留爆款结构和情感逻辑，换用不同案例细节，保持口语化真实感，绝不抄袭原文。`);
+      const txt=d.content?.[0]?.text||"";
+      const tm=txt.match(/标题[：:]\s*(.+)/);
+      setGenerated({id:Date.now(),title:tm?tm[1].trim():txt.split("\n")[0],content:txt.replace(/标题[：:]\s*.+\n?/,"").trim(),style:sl,topic:genTopic,createdAt:new Date().toLocaleDateString("zh-CN")});
+    }catch(e){setGenerated({error:"生成失败，请重试"});}
+    setGenerating(false);
+  };
+
+  const saveToLib=()=>{if(!generated||generated.error)return;setLibrary(p=>[generated,...p]);setGenerated(null);setTab("library");};
+  const copyPost=(post)=>{navigator.clipboard?.writeText(`${post.title}\n\n${post.content}`).catch(()=>{});setCopiedId(post.id);setTimeout(()=>setCopiedId(null),2000);};
+
+  const TABS=[
+    {id:"guide",label:"🗺️ 新手指引"},
+    {id:"collect",label:"📥 收集热文",count:hotPosts.length},
+    {id:"generate",label:"✨ AI仿写"},
+    {id:"library",label:"📚 内容库",count:library.length},
+  ];
+
+  return <div style={{minHeight:"100vh"}}>
+    <div style={{background:"white",borderBottom:"1px solid #FFE8ED",padding:"0 24px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 14px rgba(255,107,139,0.07)"}}>
+      <div style={{maxWidth:1020,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:60}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:34,height:34,background:"linear-gradient(135deg,#FF6B8B,#FF8C69)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🌸</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:"#2D1B1B"}}>母婴爆文工厂</div>
+            <div style={{fontSize:10,color:"#C07878"}}>小红书母婴内容创作系统</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {TABS.map(t=><button key={t.id} className={`nav-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>
+            {t.label}
+            {t.count>0&&<span style={{background:tab===t.id?"rgba(255,255,255,0.28)":"#FFE8ED",color:tab===t.id?"white":"#FF6B8B",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:600}}>{t.count}</span>}
+          </button>)}
+        </div>
+      </div>
+    </div>
+
+    <div style={{maxWidth:1020,margin:"0 auto",padding:"24px"}}>
+      {tab==="guide"&&<GuidePage onGo={setTab}/>}
+
+      {tab==="collect"&&<div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:20}}>
+        <div className="card" style={{padding:26}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#2D1B1B",marginBottom:4}}>粘贴热文内容</div>
+          <div style={{fontSize:12,color:"#C07878",marginBottom:18}}>从小红书复制爆款帖子，AI 自动分析爆款结构和情感逻辑</div>
+          <input type="text" placeholder="帖子标题（可选）" value={pasteTitle} onChange={e=>setPasteTitle(e.target.value)} style={{marginBottom:12}}/>
+          <textarea rows={10} placeholder={"粘贴小红书热文内容到这里…\n\n建议选点赞 > 1000 的帖子，内容越完整分析越准"} value={pasteText} onChange={e=>setPasteText(e.target.value)}/>
+          <div style={{marginTop:14,marginBottom:16}}>
+            <div style={{fontSize:12,color:"#8A7070",marginBottom:9}}>话题标签</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {TOPICS.map(t=><span key={t} onClick={()=>setPasteTags(p=>p.includes(t)?p.filter(x=>x!==t):[...p,t])} style={{padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",transition:"all 0.2s",background:pasteTags.includes(t)?"linear-gradient(135deg,#FF6B8B,#FF8C69)":"#FFF0F3",color:pasteTags.includes(t)?"white":"#FF6B8B"}}>{t}</span>)}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button className="btn-p" onClick={analyzePost} disabled={analyzing||!pasteText.trim()}>{analyzing?"分析中…":"🔍 AI分析爆款结构"}</button>
+            <button className="btn-g" onClick={saveHotPost} disabled={!pasteText.trim()}>💾 直接保存</button>
+          </div>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div className="card" style={{padding:20,minHeight:240}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:14}}>爆款结构分析</div>
+            {analyzing&&<div style={{padding:"20px 0"}}><Spinner label={analyzeMsg}/></div>}
+            {!analyzing&&!analysis&&<div style={{textAlign:"center",color:"#D4A0A0",padding:"36px 0"}}>
+              <div style={{fontSize:32,marginBottom:10}}>🔍</div>
+              <div style={{fontSize:13}}>粘贴热文后点击分析</div>
+            </div>}
+            {analysis&&!analysis.error&&<div style={{display:"flex",flexDirection:"column",gap:8,animation:"fadeIn 0.3s"}}>
+              {[{label:"🎣 开头钩子",val:`"${analysis.hook}"`},{label:"📐 文章结构",val:analysis.structure},{label:"💝 情感核心",val:analysis.emotion}].map(item=><div key={item.label} style={{background:"#FFF5F7",borderRadius:8,padding:"9px 12px"}}>
+                <div style={{fontSize:10,color:"#C07878",marginBottom:3}}>{item.label}</div>
+                <div style={{fontSize:12,color:"#2D1B1B"}}>{item.val}</div>
+              </div>)}
+              <div style={{background:"#FFF5F7",borderRadius:8,padding:"9px 12px"}}>
+                <div style={{fontSize:10,color:"#C07878",marginBottom:5}}>🔑 关键词</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>{(analysis.keywords||[]).map(k=><span key={k} className="chip" style={{background:"#FFE8ED",color:"#FF6B8B"}}>{k}</span>)}</div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(135deg,#FF6B8B12,#FF8C6912)",borderRadius:8,padding:"9px 12px"}}>
+                <span style={{fontSize:12,color:"#8A7070"}}>爆款潜力评分</span>
+                <span style={{fontSize:22,fontWeight:700,color:"#FF6B8B"}}>{analysis.score}<span style={{fontSize:12,fontWeight:400,color:"#C07878"}}>/10</span></span>
+              </div>
+              <button className="btn-p" style={{justifyContent:"center"}} onClick={saveHotPost}>✅ 确认保存到热文库</button>
+            </div>}
+            {analysis?.error&&<div style={{color:"#E24B4A",fontSize:13,padding:12,background:"#FFF5F5",borderRadius:8}}>{analysis.error}</div>}
+          </div>
+          {hotPosts.length>0&&<div className="card" style={{padding:20}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#2D1B1B",marginBottom:12}}>热文库 · {hotPosts.length} 篇</div>
+            {hotPosts.slice(0,5).map(p=><div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #FFF0F3"}}>
+              <div style={{fontSize:12,color:"#2D1B1B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:8}}>{p.title}</div>
+              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                {p.analysis&&<span className="chip" style={{background:"#F0FAF5",color:"#7CB9A0",fontSize:10}}>{p.analysis.score}分</span>}
+                <button onClick={()=>setHotPosts(prev=>prev.filter(x=>x.id!==p.id))} style={{background:"none",border:"none",color:"#D4A0A0",cursor:"pointer",fontSize:14,padding:"0 3px"}}>✕</button>
+              </div>
+            </div>)}
+          </div>}
+        </div>
+      </div>}
+
+      {tab==="generate"&&<div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:20}}>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div className="card" style={{padding:20}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:14}}>① 选择参考热文</div>
+            {hotPosts.length===0?<div style={{textAlign:"center",padding:"28px 0",color:"#D4A0A0"}}>
+              <div style={{fontSize:28,marginBottom:10}}>📭</div>
+              <div style={{fontSize:13,marginBottom:12}}>先去收集热文吧～</div>
+              <button className="btn-g" onClick={()=>setTab("collect")}>去收集热文</button>
+            </div>:<div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {hotPosts.map(p=><div key={p.id} className="post-card" onClick={()=>setSelectedPost(p)} style={{padding:"11px 14px",borderRadius:10,border:`2px solid ${selectedPost?.id===p.id?"#FF6B8B":"#FFE8ED"}`,background:selectedPost?.id===p.id?"#FFF5F7":"white"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#2D1B1B",marginBottom:5,lineHeight:1.5}}>{p.title}</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {p.tags?.slice(0,2).map(t=><span key={t} className="chip" style={{background:"#FFE8ED",color:"#FF6B8B"}}>{t}</span>)}
+                  {p.analysis&&<span className="chip" style={{background:"#F0FAF5",color:"#7CB9A0"}}>{p.analysis.score}分</span>}
+                </div>
+              </div>)}
+            </div>}
+          </div>
+          <div className="card" style={{padding:20}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",marginBottom:14}}>② 配置创作参数</div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:"#8A7070",marginBottom:8}}>文章类型</div>
+              {STYLES.map(s=><div key={s.id} onClick={()=>setGenStyle(s.id)} style={{padding:"9px 13px",borderRadius:9,border:`1.5px solid ${genStyle===s.id?"#FF6B8B":"#FFE8ED"}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",background:genStyle===s.id?"#FFF5F7":"white",marginBottom:5,transition:"all 0.2s"}}>
+                <span style={{fontSize:13,fontWeight:genStyle===s.id?600:400,color:"#2D1B1B"}}>{s.label}</span>
+                <span style={{fontSize:11,color:"#C07878"}}>{s.desc}</span>
+              </div>)}
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:"#8A7070",marginBottom:8}}>话题方向</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {TOPICS.map(t=><span key={t} onClick={()=>setGenTopic(genTopic===t?"":t)} style={{padding:"4px 11px",borderRadius:20,fontSize:12,cursor:"pointer",transition:"all 0.2s",background:genTopic===t?"linear-gradient(135deg,#FF6B8B,#FF8C69)":"#FFF0F3",color:genTopic===t?"white":"#FF6B8B"}}>{t}</span>)}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#8A7070",marginBottom:7}}>特殊备注（可选）</div>
+              <textarea rows={2} placeholder="如：突出某痛点、写给新手妈妈…" value={customNote} onChange={e=>setCustomNote(e.target.value)} style={{fontSize:13}}/>
+            </div>
+            <button className="btn-p" style={{marginTop:14,width:"100%",justifyContent:"center"}} onClick={generateArticle} disabled={generating||!selectedPost}>
+              {generating?"AI创作中…":"🚀 一键仿写生成"}
+            </button>
+          </div>
+        </div>
+        <div className="card" style={{padding:26}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#2D1B1B",marginBottom:16}}>③ 生成结果</div>
+          {generating&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14,padding:"70px 0"}}>
+            <Spinner label="AI 正在分析爆款逻辑，创作专属文章…"/>
+            <div style={{fontSize:12,color:"#D4A0A0"}}>通常需要 10-20 秒，请耐心等待</div>
+          </div>}
+          {!generating&&!generated&&<div style={{textAlign:"center",padding:"70px 0",color:"#D4A0A0"}}>
+            <div style={{fontSize:48,marginBottom:14}}>✨</div>
+            <div style={{fontSize:14,marginBottom:6}}>在左侧选择热文和参数</div>
+            <div style={{fontSize:12}}>点击「一键仿写生成」开始创作</div>
+          </div>}
+          {generated&&!generated.error&&<div style={{animation:"fadeIn 0.4s"}}>
+            <div style={{background:"linear-gradient(135deg,#FF6B8B08,#FF8C6908)",borderRadius:12,padding:"16px 18px",marginBottom:18,borderLeft:"3px solid #FF6B8B"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"#2D1B1B",lineHeight:1.6}}>{generated.title}</div>
+            </div>
+            <div style={{fontSize:14,color:"#3D2B2B",lineHeight:2,whiteSpace:"pre-wrap",maxHeight:440,overflowY:"auto",paddingRight:6}}>{generated.content}</div>
+            <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
+              <button className="btn-p" onClick={saveToLib}>📚 存入内容库</button>
+              <button className="btn-g" onClick={()=>copyPost(generated)}>{copiedId===generated?.id?"✓ 已复制":"📋 复制全文"}</button>
+              <button className="btn-g" onClick={generateArticle}>🔄 重新生成</button>
+            </div>
+          </div>}
+          {generated?.error&&<div style={{color:"#E24B4A",fontSize:13,padding:16,background:"#FFF5F5",borderRadius:10}}>{generated.error}</div>}
+        </div>
+      </div>}
+
+      {tab==="library"&&<div>
+        {library.length===0?<div style={{textAlign:"center",padding:"90px 0",color:"#D4A0A0"}}>
+          <div style={{fontSize:56,marginBottom:18}}>📚</div>
+          <div style={{fontSize:16,marginBottom:8,color:"#8A7070"}}>内容库还是空的</div>
+          <div style={{fontSize:13,marginBottom:24}}>先收集热文，再用 AI 仿写生成帖子</div>
+          <button className="btn-p" onClick={()=>setTab("collect")}>开始收集热文</button>
+        </div>:<div>
+          <div style={{fontSize:13,color:"#8A7070",marginBottom:16}}>共 {library.length} 篇创作内容</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            {library.map(post=><div key={post.id} className="card" style={{padding:20}}>
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#2D1B1B",lineHeight:1.5,marginBottom:7}}>{post.title}</div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {post.style&&<span className="chip" style={{background:"#FFE8ED",color:"#FF6B8B"}}>{post.style}</span>}
+                  {post.topic&&<span className="chip" style={{background:"#F0FAF5",color:"#7CB9A0"}}>{post.topic}</span>}
+                  <span className="chip" style={{background:"#F5F3F0",color:"#8A8580"}}>{post.createdAt}</span>
+                </div>
+              </div>
+              {editingId===post.id?<div>
+                <textarea rows={8} value={editText} onChange={e=>setEditText(e.target.value)} style={{fontSize:13,marginBottom:10}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn-p" style={{padding:"7px 16px",fontSize:13}} onClick={()=>{setLibrary(p=>p.map(x=>x.id===post.id?{...x,content:editText}:x));setEditingId(null);}}>保存</button>
+                  <button className="btn-g" onClick={()=>setEditingId(null)}>取消</button>
+                </div>
+              </div>:<div>
+                <div style={{fontSize:13,color:"#5A3A3A",lineHeight:1.9,maxHeight:110,overflow:"hidden",maskImage:"linear-gradient(to bottom,black 55%,transparent 100%)"}}>{post.content}</div>
+                <div style={{display:"flex",gap:8,marginTop:14}}>
+                  <button onClick={()=>copyPost(post)} style={{flex:1,background:copiedId===post.id?"#7CB9A0":"linear-gradient(135deg,#FF6B8B,#FF8C69)",color:"white",border:"none",borderRadius:10,padding:"9px 0",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all 0.3s",fontFamily:"inherit"}}>
+                    {copiedId===post.id?"✓ 已复制":"📋 复制"}
+                  </button>
+                  <button className="btn-g" onClick={()=>{setEditingId(post.id);setEditText(post.content);}}>✏️ 编辑</button>
+                  <button onClick={()=>setLibrary(p=>p.filter(x=>x.id!==post.id))} style={{background:"#FFF5F5",border:"none",color:"#E24B4A",borderRadius:10,padding:"9px 12px",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+                </div>
+              </div>}
+            </div>)}
+          </div>
+        </div>}
+      </div>}
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
